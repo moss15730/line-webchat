@@ -8,8 +8,7 @@ export async function GET() {
   return NextResponse.json({ status: 'ok' })
 }
 
-function verifySignature(rawBody: string, signature: string | null, secret: string): boolean {
-  if (!signature || !secret) return false
+function verifySignature(rawBody: string, signature: string, secret: string): boolean {
   const hash = createHmac('sha256', secret).update(rawBody, 'utf8').digest('base64')
   return hash === signature
 }
@@ -23,11 +22,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Bad body' }, { status: 400 })
   }
 
-  const signature = req.headers.get('x-line-signature') ?? null
-  const secret = process.env.LINE_CHANNEL_SECRET ?? ''
-  if (secret && !verifySignature(rawBody, signature, secret)) {
-    console.error('Webhook: signature verification failed')
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+  const signature = (req.headers.get('x-line-signature') ?? '').trim()
+  const secret = (process.env.LINE_CHANNEL_SECRET ?? '').trim()
+  const skipVerify = process.env.SKIP_WEBHOOK_SIGNATURE_VERIFICATION === 'true'
+
+  if (!skipVerify && secret) {
+    if (!signature) {
+      console.error('Webhook: missing x-line-signature header')
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+    }
+    if (!verifySignature(rawBody, signature, secret)) {
+      console.error(
+        'Webhook: signature mismatch. Check LINE_CHANNEL_SECRET (Basic settings) and that no proxy modifies the body.'
+      )
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+    }
   }
 
   let body: { destination?: string; events?: unknown[] }
