@@ -88,7 +88,7 @@ export function ChatMessages({
               <div
                 className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${
                   isAdmin
-                    ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white'
+                    ? 'bg-linear-to-r from-sky-500 to-blue-600 text-white'
                     : 'bg-white text-slate-900'
                 }`}
               >

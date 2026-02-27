@@ -28,7 +28,9 @@ export default function Home() {
   const [hasInitialized, setHasInitialized] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null!)
   const selectedUserIdRef = useRef<string | null>(null)
+  const usersRef = useRef<ChatUser[]>([])
   selectedUserIdRef.current = selectedUser?.line_user_id ?? null
+  usersRef.current = users
 
   const PAGE_SIZE = 30
 
@@ -116,10 +118,7 @@ export default function Home() {
       })
       .then((data: ChatUser[]) => {
         setUsers(data)
-        if (data.length > 0) {
-          handleSelectUser(data[0])
-          setHasInitialized(true)
-        }
+        setHasInitialized(true)
       })
   }, [handleSelectUser, hasInitialized, isCheckingAuth, router])
 
@@ -184,18 +183,26 @@ export default function Home() {
             created_at,
           }
 
-          setUsers(prev =>
-            prev.map(u =>
-              u.line_user_id === lineUserId
-                ? {
-                    ...u,
-                    last_message: message,
-                    last_time: formatMessageTime(created_at),
-                    read: false,
-                  }
-                : u
+          const isNewUser = !usersRef.current.some(u => u.line_user_id === lineUserId)
+          if (isNewUser) {
+            fetch('/api/users')
+              .then(res => (res.ok ? res.json() : []))
+              .then((data: ChatUser[]) => setUsers(data))
+              .catch(() => {})
+          } else {
+            setUsers(prev =>
+              prev.map(u =>
+                u.line_user_id === lineUserId
+                  ? {
+                      ...u,
+                      last_message: message,
+                      last_time: formatMessageTime(created_at),
+                      read: false,
+                    }
+                  : u
+              )
             )
-          )
+          }
 
           if (selectedUserIdRef.current === lineUserId) {
             setMessages(prev => [...prev, newMsg])
