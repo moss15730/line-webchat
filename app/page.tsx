@@ -89,16 +89,23 @@ export default function Home() {
         if (data.length < PAGE_SIZE) {
           setHasMore(false)
         }
-        await fetch('/api/users/read', {
+        const readRes = await fetch('/api/users/read', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ line_user_id: user.line_user_id, read: true }),
         })
-        setUsers(prev =>
-          prev.map(u =>
-            u.line_user_id === user.line_user_id ? { ...u, read: true } : u
+        if (readRes.ok) {
+          fetch('/api/users')
+            .then(r => (r.ok ? r.json() : []))
+            .then((data: ChatUser[]) => setUsers(data))
+            .catch(() => {})
+        } else {
+          setUsers(prev =>
+            prev.map(u =>
+              u.line_user_id === user.line_user_id ? { ...u, read: true } : u
+            )
           )
-        )
+        }
       } finally {
         setIsPageLoading(false)
       }
@@ -124,7 +131,7 @@ export default function Home() {
 
   const sendMessage = async () => {
     if (!text.trim() || !selectedUser) return
-    await fetch('/api/send', {
+    const res = await fetch('/api/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -132,6 +139,7 @@ export default function Home() {
         message: text,
       }),
     })
+    if (!res.ok) return
     const optimisticMessage: ChatMessage = {
       id: Date.now(),
       line_user_id: selectedUser.line_user_id,
@@ -146,6 +154,10 @@ export default function Home() {
       optimisticMessage.created_at
     )
     setText('')
+    fetch('/api/users')
+      .then(r => (r.ok ? r.json() : []))
+      .then((data: ChatUser[]) => setUsers(data))
+      .catch(() => {})
   }
 
   const signOut = async () => {
