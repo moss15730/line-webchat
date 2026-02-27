@@ -95,9 +95,14 @@ export default function Home() {
           body: JSON.stringify({ line_user_id: user.line_user_id, read: true }),
         })
         if (readRes.ok) {
-          fetch('/api/users')
+          fetch('/api/users', { cache: 'no-store' })
             .then(r => (r.ok ? r.json() : []))
-            .then((data: ChatUser[]) => setUsers(data))
+            .then((data: ChatUser[]) => {
+              setUsers(data)
+              setSelectedUser(prev =>
+                prev ? data.find(u => u.line_user_id === prev.line_user_id) ?? prev : null
+              )
+            })
             .catch(() => {})
         } else {
           setUsers(prev =>
@@ -115,7 +120,7 @@ export default function Home() {
 
   useEffect(() => {
     if (isCheckingAuth || hasInitialized) return
-    fetch('/api/users')
+    fetch('/api/users', { cache: 'no-store' })
       .then(res => {
         if (!res.ok) {
           router.replace('/login')
@@ -154,9 +159,14 @@ export default function Home() {
       optimisticMessage.created_at
     )
     setText('')
-    fetch('/api/users')
+    fetch('/api/users', { cache: 'no-store' })
       .then(r => (r.ok ? r.json() : []))
-      .then((data: ChatUser[]) => setUsers(data))
+      .then((data: ChatUser[]) => {
+        setUsers(data)
+        setSelectedUser(prev =>
+          prev ? data.find(u => u.line_user_id === prev.line_user_id) ?? prev : null
+        )
+      })
       .catch(() => {})
   }
 
@@ -197,7 +207,7 @@ export default function Home() {
 
           const isNewUser = !usersRef.current.some(u => u.line_user_id === lineUserId)
           if (isNewUser) {
-            fetch('/api/users')
+            fetch('/api/users', { cache: 'no-store' })
               .then(res => (res.ok ? res.json() : []))
               .then((data: ChatUser[]) => setUsers(data))
               .catch(() => {})
