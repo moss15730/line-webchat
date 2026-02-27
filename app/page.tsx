@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ChatMessage, ChatUser } from '../types/chat'
 import { filters, formatMessageTime } from '../lib/chatUtils'
+import { supabaseBrowser } from '../lib/supabase-browser'
 import { ChatSidebar } from '../components/ChatSidebar'
 import { MobileChatSidebar } from '../components/MobileChatSidebar'
 import { ChatHeader } from '../components/ChatHeader'
@@ -25,6 +26,8 @@ export default function Home() {
   const [activeFilter, setActiveFilter] = useState<string>(filters[0])
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null!)
+  const selectedUserIdRef = useRef<string | null>(null)
+  selectedUserIdRef.current = selectedUser?.line_user_id ?? null
 
   const PAGE_SIZE = 30
 
@@ -151,6 +154,58 @@ export default function Home() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'auto' })
   }, [messages])
+
+  // แสดงข้อความใหม่ทันทีเมื่อ webhook บันทึก (Supabase Realtime)
+  useEffect(() => {
+    if (isCheckingAuth || !supabaseBrowser) return
+
+    const channel = supabaseBrowser
+      .channel('messages-realtime')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload: { new: Record<string, unknown> }) => {
+          const row = payload.new
+          const lineUserId = row?.line_user_id as string | undefined
+          const message = row?.message as string | undefined
+          const created_at = row?.created_at as string | undefined
+          const id = row?.id as number | undefined
+          const sender = (row?.sender as ChatMessage['sender']) ?? 'customer'
+
+          if (!lineUserId || message == null || created_at == null) return
+
+          const newMsg: ChatMessage = {
+            id: id ?? 0,
+            line_user_id: lineUserId,
+            sender,
+            message,
+            created_at,
+          }
+
+          setUsers(prev =>
+            prev.map(u =>
+              u.line_user_id === lineUserId
+                ? {
+                    ...u,
+                    last_message: message,
+                    last_time: formatMessageTime(created_at),
+                    read: false,
+                  }
+                : u
+            )
+          )
+
+          if (selectedUserIdRef.current === lineUserId) {
+            setMessages(prev => [...prev, newMsg])
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      if (supabaseBrowser) supabaseBrowser.removeChannel(channel)
+    }
+  }, [isCheckingAuth])
 
   const loadMoreMessages = useCallback(async () => {
     if (!selectedUser || isLoadingMore || !hasMore || messages.length === 0) return
