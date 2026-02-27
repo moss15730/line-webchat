@@ -29,8 +29,11 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null!)
   const selectedUserIdRef = useRef<string | null>(null)
   const usersRef = useRef<ChatUser[]>([])
+  const lastMessageCreatedAtRef = useRef<string>('')
   selectedUserIdRef.current = selectedUser?.line_user_id ?? null
   usersRef.current = users
+  lastMessageCreatedAtRef.current =
+    messages.length > 0 ? messages[messages.length - 1].created_at : ''
 
   const PAGE_SIZE = 30
 
@@ -237,6 +240,42 @@ export default function Home() {
       if (supabaseBrowser) supabaseBrowser.removeChannel(channel)
     }
   }, [isCheckingAuth])
+
+  const POLL_INTERVAL_MS = 3000
+  useEffect(() => {
+    if (isCheckingAuth || !selectedUser) return
+    const lineUserId = selectedUser.line_user_id
+
+    const poll = () => {
+      const lastCreatedAt = lastMessageCreatedAtRef.current
+        || new Date(Date.now() - 60_000).toISOString()
+      const params = new URLSearchParams({
+        userId: lineUserId,
+        after: lastCreatedAt,
+      })
+      fetch(`/api/messages?${params.toString()}`)
+        .then(res => (res.ok ? res.json() : []))
+        .then((data: ChatMessage[]) => {
+          if (data.length === 0) return
+          setMessages(prev => {
+            const existingIds = new Set(prev.map(m => m.id))
+            const newOnes = data.filter(m => !existingIds.has(m.id))
+            if (newOnes.length === 0) return prev
+            const merged = [...prev, ...newOnes].sort(
+              (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+            )
+            return merged
+          })
+          const last = data[data.length - 1]
+          updateUserPreview(lineUserId, last.message, last.created_at)
+        })
+        .catch(() => {})
+    }
+
+    const timer = setInterval(poll, POLL_INTERVAL_MS)
+    poll()
+    return () => clearInterval(timer)
+  }, [isCheckingAuth, selectedUser?.line_user_id, updateUserPreview])
 
   const loadMoreMessages = useCallback(async () => {
     if (!selectedUser || isLoadingMore || !hasMore || messages.length === 0) return
