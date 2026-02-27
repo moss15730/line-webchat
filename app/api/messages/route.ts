@@ -8,12 +8,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const userId = req.nextUrl.searchParams.get('userId')
+  const limitParam = req.nextUrl.searchParams.get('limit')
+  const before = req.nextUrl.searchParams.get('before')
 
-  const { data } = await supabase
+  const limit = Number.isNaN(Number(limitParam)) || !limitParam ? 30 : Number(limitParam)
+
+  if (!userId) {
+    return NextResponse.json([], { status: 200 })
+  }
+
+  let query = supabase
     .from('messages')
     .select('*')
     .eq('line_user_id', userId)
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
+    .limit(limit)
 
-  return NextResponse.json(data)
+  if (before) {
+    query = query.lt('created_at', before)
+  }
+
+  const { data } = await query
+
+  return NextResponse.json(data ?? [])
 }

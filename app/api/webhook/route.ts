@@ -40,6 +40,11 @@ export async function POST(req: NextRequest) {
                     sender: 'customer',
                     message: text,
                 })
+
+                await supabase
+                    .from('users')
+                    .update({ read: false })
+                    .eq('line_user_id', userId)
             }
         }
 

@@ -1,23 +1,15 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Image from 'next/image'
-
-type ChatUser = {
-  id: number
-  line_user_id: string
-  display_name: string | null
-  picture_url: string | null
-}
-
-type ChatMessage = {
-  id: number
-  line_user_id: string
-  sender: 'admin' | 'user' | 'customer'
-  message: string
-  created_at: string
-}
+import type { ChatMessage, ChatUser } from '../types/chat'
+import { filters, formatMessageTime } from '../lib/chatUtils'
+import { ChatSidebar } from '../components/ChatSidebar'
+import { MobileChatSidebar } from '../components/MobileChatSidebar'
+import { ChatHeader } from '../components/ChatHeader'
+import { ChatMessages } from '../components/ChatMessages'
+import { ChatInput } from '../components/ChatInput'
+import { LoadingOverlay } from '../components/LoadingOverlay'
 
 export default function Home() {
   const router = useRouter()
@@ -25,27 +17,90 @@ export default function Home() {
   const [users, setUsers] = useState<ChatUser[]>([])
   const [selectedUser, setSelectedUser] = useState<ChatUser | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [hasMore, setHasMore] = useState(true)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [isPageLoading, setIsPageLoading] = useState(false)
   const [text, setText] = useState('')
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [search, setSearch] = useState('')
+  const [activeFilter, setActiveFilter] = useState<string>(filters[0])
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null!)
+
+  const PAGE_SIZE = 30
+
+  const updateUserPreview = useCallback(
+    (lineUserId: string, message: string, createdAt: string) => {
+      setUsers(prev =>
+        prev.map(user =>
+          user.line_user_id === lineUserId
+            ? {
+                ...user,
+                last_message: message,
+                last_time: formatMessageTime(createdAt),
+              }
+            : user
+        )
+      )
+    },
+    []
+  )
 
   useEffect(() => {
     const checkSession = async () => {
       const response = await fetch('/api/auth/session')
-
       if (!response.ok) {
         router.replace('/login')
         return
       }
-
       setIsCheckingAuth(false)
     }
-
     checkSession()
   }, [router])
 
+  const handleSelectUser = useCallback(
+    async (user: ChatUser) => {
+      setSelectedUser(user)
+      setIsSidebarOpen(false)
+      setHasMore(true)
+      setIsPageLoading(true)
+      try {
+        const res = await fetch(`/api/messages?userId=${user.line_user_id}&limit=${PAGE_SIZE}`)
+        if (!res.ok) {
+          router.replace('/login')
+          return
+        }
+        const data: ChatMessage[] = await res.json()
+        const sorted = [...data].sort(
+          (a, b) =>
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        )
+        setMessages(sorted)
+        if (sorted.length > 0) {
+          const last = sorted[sorted.length - 1]
+          updateUserPreview(user.line_user_id, last.message, last.created_at)
+        }
+        if (data.length < PAGE_SIZE) {
+          setHasMore(false)
+        }
+        await fetch('/api/users/read', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ line_user_id: user.line_user_id, read: true }),
+        })
+        setUsers(prev =>
+          prev.map(u =>
+            u.line_user_id === user.line_user_id ? { ...u, read: true } : u
+          )
+        )
+      } finally {
+        setIsPageLoading(false)
+      }
+    },
+    [PAGE_SIZE, router, updateUserPreview]
+  )
+
   useEffect(() => {
     if (isCheckingAuth) return
-
     fetch('/api/users')
       .then(res => {
         if (!res.ok) {
@@ -54,12 +109,16 @@ export default function Home() {
         }
         return res.json()
       })
-      .then((data: ChatUser[]) => setUsers(data))
-  }, [isCheckingAuth, router])
+      .then((data: ChatUser[]) => {
+        setUsers(data)
+        if (data.length > 0) {
+          handleSelectUser(data[0])
+        }
+      })
+  }, [handleSelectUser, isCheckingAuth, router])
 
   const sendMessage = async () => {
     if (!text.trim() || !selectedUser) return
-
     await fetch('/api/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -68,21 +127,20 @@ export default function Home() {
         message: text,
       }),
     })
-
-    setText('')
-  }
-
-  const handleSelectUser = async (user: ChatUser) => {
-    setSelectedUser(user)
-
-    const res = await fetch(`/api/messages?userId=${user.line_user_id}`)
-    if (!res.ok) {
-      router.replace('/login')
-      return
+    const optimisticMessage: ChatMessage = {
+      id: Date.now(),
+      line_user_id: selectedUser.line_user_id,
+      sender: 'admin',
+      message: text,
+      created_at: new Date().toISOString(),
     }
-
-    const data: ChatMessage[] = await res.json()
-    setMessages(data)
+    setMessages(prev => [...prev, optimisticMessage])
+    updateUserPreview(
+      selectedUser.line_user_id,
+      optimisticMessage.message,
+      optimisticMessage.created_at
+    )
+    setText('')
   }
 
   const signOut = async () => {
@@ -91,109 +149,118 @@ export default function Home() {
   }
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' })
   }, [messages])
+
+  const loadMoreMessages = useCallback(async () => {
+    if (!selectedUser || isLoadingMore || !hasMore || messages.length === 0) return
+
+    const oldest = messages[0]
+    setIsLoadingMore(true)
+    const params = new URLSearchParams({
+      userId: selectedUser.line_user_id,
+      limit: String(PAGE_SIZE),
+      before: oldest.created_at,
+    })
+    const res = await fetch(`/api/messages?${params.toString()}`)
+    if (!res.ok) {
+      setIsLoadingMore(false)
+      return
+    }
+    const data: ChatMessage[] = await res.json()
+    if (data.length === 0) {
+      setHasMore(false)
+      setIsLoadingMore(false)
+      return
+    }
+    const combined = [...data, ...messages]
+    const uniqueById = combined.reduce<ChatMessage[]>((acc, msg) => {
+      if (!acc.find(existing => existing.id === msg.id)) {
+        acc.push(msg)
+      }
+      return acc
+    }, [])
+    uniqueById.sort(
+      (a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    )
+    setMessages(uniqueById)
+    if (data.length < PAGE_SIZE) {
+      setHasMore(false)
+    }
+    setIsLoadingMore(false)
+  }, [PAGE_SIZE, hasMore, isLoadingMore, messages, selectedUser])
 
   if (isCheckingAuth) {
     return (
-      <div className="h-screen flex items-center justify-center text-gray-500">
-        Checking session...
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-slate-500">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-top-sky-500" />
+          <span>Checking session...</span>
+        </div>
       </div>
     )
   }
 
+  const filteredUsers = users.filter(user => {
+    const displayName = (user.display_name || 'Unknown').toLowerCase()
+    const matchSearch = displayName.includes(search.toLowerCase())
+    if (activeFilter === 'ยังไม่ได้อ่าน') return matchSearch && user.read === false
+    return matchSearch
+  })
+
   return (
-    <div className="flex h-screen bg-gray-100 font-sans">
-      <div className="w-72 bg-white border-r overflow-y-auto">
-        <div className="p-5 font-semibold border-b flex items-center justify-between gap-2">
-          <span>Customers</span>
-          <button
-            onClick={signOut}
-            className="text-xs border rounded px-2 py-1 hover:bg-gray-100"
-          >
-            Logout
-          </button>
-        </div>
+    <div className="relative flex h-screen flex-col overflow-hidden bg-slate-50 font-['Sarabun',sans-serif] text-slate-900 md:flex-row">
+      {isPageLoading && <LoadingOverlay message="กำลังโหลดข้อความ..." />}
+      {/* Sidebar */}
+      <ChatSidebar
+        users={filteredUsers}
+        selectedUser={selectedUser}
+        search={search}
+        onSearchChange={setSearch}
+        activeFilter={activeFilter}
+        filters={filters}
+        onFilterChange={setActiveFilter}
+        onSelectUser={handleSelectUser}
+        onSignOut={signOut}
+      />
 
-        {users.map(user => (
-          <div
-            key={user.id}
-            onClick={() => handleSelectUser(user)}
-            className={`flex items-center gap-3 p-4 cursor-pointer hover:bg-gray-100
-              ${selectedUser?.id === user.id && 'bg-gray-100'}
-            `}
-          >
-            <Image
-              src={user.picture_url || '/file.svg'}
-              width={40}
-              height={40}
-              className="w-10 h-10 rounded-full object-cover"
-              alt={user.display_name || 'avatar'}
-              unoptimized
-            />
-            <div className="text-sm font-medium">
-              {user.display_name || 'Unknown'}
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* Chat Area */}
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white">
+        <ChatHeader selectedUser={selectedUser} onOpenSidebar={() => setIsSidebarOpen(true)} />
 
-      <div className="flex flex-col flex-1">
-        <div className="p-5 bg-white border-b font-medium">
-          {selectedUser
-            ? selectedUser.display_name
-            : 'Select a conversation'}
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6 space-y-3">
-          {messages.map(msg => (
-            <div
-              key={msg.id}
-              className={`flex flex-col ${
-                msg.sender === 'admin'
-                  ? 'items-end'
-                  : 'items-start'
-              }`}
-            >
-              <div
-                className={`px-4 py-2 rounded-2xl max-w-xs text-sm
-                  ${
-                    msg.sender === 'admin'
-                      ? 'bg-black text-white'
-                      : 'bg-gray-200 text-black'
-                  }
-                `}
-              >
-                {msg.message}
-              </div>
-
-              <span className="text-xs text-gray-400 mt-1">
-                {new Date(msg.created_at).toLocaleTimeString()}
-              </span>
-            </div>
-          ))}
-
-          <div ref={messagesEndRef} />
-        </div>
+        <ChatMessages
+          messages={messages}
+          selectedUser={selectedUser}
+          messagesEndRef={messagesEndRef}
+          onLoadMore={loadMoreMessages}
+          hasMore={hasMore}
+          isLoadingMore={isLoadingMore}
+        />
 
         {selectedUser && (
-          <div className="p-4 bg-white border-t flex gap-3">
-            <input
-              value={text}
-              onChange={e => setText(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && sendMessage()}
-              placeholder="Type a message..."
-              className="flex-1 border rounded-full px-4 py-2 outline-none focus:ring-2 focus:ring-black"
-            />
-            <button
-              onClick={sendMessage}
-              className="bg-black text-white px-6 py-2 rounded-full hover:opacity-80"
-            >
-              Send
-            </button>
-          </div>
+          <ChatInput
+            text={text}
+            onTextChange={setText}
+            onSend={sendMessage}
+            disabled={isCheckingAuth}
+          />
         )}
-      </div>
+      </main>
+
+      <MobileChatSidebar
+        isOpen={isSidebarOpen}
+        users={filteredUsers}
+        selectedUser={selectedUser}
+        search={search}
+        onSearchChange={setSearch}
+        activeFilter={activeFilter}
+        filters={filters}
+        onFilterChange={setActiveFilter}
+        onSelectUser={handleSelectUser}
+        onSignOut={signOut}
+        onClose={() => setIsSidebarOpen(false)}
+      />
     </div>
   )
 }
