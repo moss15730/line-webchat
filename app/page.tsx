@@ -123,32 +123,22 @@ export default function Home() {
       })
   }, [handleSelectUser, hasInitialized, isCheckingAuth, router])
 
-  // poll รายชื่อ users เป็นระยะ เพื่ออัปเดต preview / read flag ให้ตรงกับ DB
   useEffect(() => {
     if (isCheckingAuth) return
     const id = setInterval(() => {
       fetch('/api/users')
-        .then(res => {
-          if (!res.ok) return [] as ChatUser[]
-          return res.json()
-        })
+        .then(res => (res.ok ? res.json() : [] as ChatUser[]))
         .then((data: ChatUser[]) => setUsers(data))
         .catch(() => {})
-    }, 3000)
-
+    }, 15000)
     return () => clearInterval(id)
   }, [isCheckingAuth])
 
-  // poll ข้อความในห้องที่เปิดอยู่ เพื่อให้ข้อความใหม่จาก LINE โผล่ในแชททันที
   useEffect(() => {
     if (isCheckingAuth || !selectedUser) return
-
     const pollMessages = () => {
       fetch(`/api/messages?userId=${selectedUser.line_user_id}&limit=${PAGE_SIZE}`)
-        .then(res => {
-          if (!res.ok) return [] as ChatMessage[]
-          return res.json()
-        })
+        .then(res => (res.ok ? res.json() : [] as ChatMessage[]))
         .then((data: ChatMessage[]) => {
           const sorted = [...data].sort(
             (a, b) =>
@@ -167,9 +157,8 @@ export default function Home() {
         })
         .catch(() => {})
     }
-
     pollMessages()
-    const id = setInterval(pollMessages, 3000)
+    const id = setInterval(pollMessages, 15000)
     return () => clearInterval(id)
   }, [isCheckingAuth, selectedUser?.line_user_id, PAGE_SIZE])
 
@@ -208,7 +197,6 @@ export default function Home() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'auto' })
   }, [messages])
 
-  // แสดงข้อความใหม่ทันทีเมื่อ webhook บันทึก (Supabase Realtime)
   useEffect(() => {
     if (isCheckingAuth || !supabaseBrowser) return
 
