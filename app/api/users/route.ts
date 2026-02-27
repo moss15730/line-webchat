@@ -47,6 +47,9 @@ export async function GET() {
         last_time: last
           ? formatMessageTime(last.created_at)
           : (user as any).last_time ?? undefined,
+        last_created_at: last
+          ? last.created_at
+          : (user as any).last_created_at ?? undefined,
       }
     }) ?? []
 

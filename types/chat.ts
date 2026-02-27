@@ -6,6 +6,8 @@ export type ChatUser = {
   last_message?: string
   last_time?: string
   unread?: boolean
+  /** เวลา created_at ของข้อความล่าสุด (ใช้สำหรับ sort) */
+  last_created_at?: string
   /** true = อ่านแล้ว, false = ยังไม่อ่าน */
   read?: boolean
   online?: boolean

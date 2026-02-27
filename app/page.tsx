@@ -25,6 +25,7 @@ export default function Home() {
   const [search, setSearch] = useState('')
   const [activeFilter, setActiveFilter] = useState<string>(filters[0])
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [hasInitialized, setHasInitialized] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null!)
   const selectedUserIdRef = useRef<string | null>(null)
   selectedUserIdRef.current = selectedUser?.line_user_id ?? null
@@ -40,6 +41,7 @@ export default function Home() {
                 ...user,
                 last_message: message,
                 last_time: formatMessageTime(createdAt),
+                last_created_at: createdAt,
               }
             : user
         )
@@ -103,7 +105,7 @@ export default function Home() {
   )
 
   useEffect(() => {
-    if (isCheckingAuth) return
+    if (isCheckingAuth || hasInitialized) return
     fetch('/api/users')
       .then(res => {
         if (!res.ok) {
@@ -116,9 +118,60 @@ export default function Home() {
         setUsers(data)
         if (data.length > 0) {
           handleSelectUser(data[0])
+          setHasInitialized(true)
         }
       })
-  }, [handleSelectUser, isCheckingAuth, router])
+  }, [handleSelectUser, hasInitialized, isCheckingAuth, router])
+
+  // poll รายชื่อ users เป็นระยะ เพื่ออัปเดต preview / read flag ให้ตรงกับ DB
+  useEffect(() => {
+    if (isCheckingAuth) return
+    const id = setInterval(() => {
+      fetch('/api/users')
+        .then(res => {
+          if (!res.ok) return [] as ChatUser[]
+          return res.json()
+        })
+        .then((data: ChatUser[]) => setUsers(data))
+        .catch(() => {})
+    }, 3000)
+
+    return () => clearInterval(id)
+  }, [isCheckingAuth])
+
+  // poll ข้อความในห้องที่เปิดอยู่ เพื่อให้ข้อความใหม่จาก LINE โผล่ในแชททันที
+  useEffect(() => {
+    if (isCheckingAuth || !selectedUser) return
+
+    const pollMessages = () => {
+      fetch(`/api/messages?userId=${selectedUser.line_user_id}&limit=${PAGE_SIZE}`)
+        .then(res => {
+          if (!res.ok) return [] as ChatMessage[]
+          return res.json()
+        })
+        .then((data: ChatMessage[]) => {
+          const sorted = [...data].sort(
+            (a, b) =>
+              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          )
+          setMessages(prev => {
+            const existingIds = new Set(prev.map(m => m.id))
+            const newOnes = sorted.filter(m => !existingIds.has(m.id))
+            if (newOnes.length === 0) return prev
+            return [...prev, ...newOnes].sort(
+              (a, b) =>
+                new Date(a.created_at).getTime() -
+                new Date(b.created_at).getTime()
+            )
+          })
+        })
+        .catch(() => {})
+    }
+
+    pollMessages()
+    const id = setInterval(pollMessages, 3000)
+    return () => clearInterval(id)
+  }, [isCheckingAuth, selectedUser?.line_user_id, PAGE_SIZE])
 
   const sendMessage = async () => {
     if (!text.trim() || !selectedUser) return
@@ -257,12 +310,19 @@ export default function Home() {
     )
   }
 
-  const filteredUsers = users.filter(user => {
-    const displayName = (user.display_name || 'Unknown').toLowerCase()
-    const matchSearch = displayName.includes(search.toLowerCase())
-    if (activeFilter === 'ยังไม่ได้อ่าน') return matchSearch && user.read === false
-    return matchSearch
-  })
+  const filteredUsers = users
+    .slice()
+    .sort((a, b) => {
+      const at = a.last_created_at ? new Date(a.last_created_at).getTime() : 0
+      const bt = b.last_created_at ? new Date(b.last_created_at).getTime() : 0
+      return bt - at
+    })
+    .filter(user => {
+      const displayName = (user.display_name || 'Unknown').toLowerCase()
+      const matchSearch = displayName.includes(search.toLowerCase())
+      if (activeFilter === 'ยังไม่ได้อ่าน') return matchSearch && user.read === false
+      return matchSearch
+    })
 
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-slate-50 font-['Sarabun',sans-serif] text-slate-900 md:flex-row">

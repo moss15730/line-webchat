@@ -26,10 +26,6 @@ export async function POST(req: NextRequest) {
   const secret = (process.env.LINE_CHANNEL_SECRET ?? '').trim()
   const skipVerify = process.env.SKIP_WEBHOOK_SIGNATURE_VERIFICATION === 'true'
 
-  console.log('signature', signature);
-  console.log('secret', secret);
-  console.log('skipVerify', skipVerify);
-
   if (!skipVerify && secret) {
     if (!signature) {
       console.error('Webhook: missing x-line-signature header')
