@@ -241,7 +241,7 @@ export default function Home() {
     }
   }, [isCheckingAuth])
 
-  const POLL_FULL_REFRESH_MS = 30000
+  const POLL_FULL_REFRESH_MS = 60000
 
   // รีเฟรชทันทีเมื่อกลับมาเปิดแท็บ (หลัง webhook insert ข้อความจาก LINE แล้ว)
   useEffect(() => {
