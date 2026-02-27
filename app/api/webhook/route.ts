@@ -5,6 +5,9 @@ import axios from 'axios'
 export async function POST(req: NextRequest) {
   const body = await req.json()
 
+  console.log("🔥 WEBHOOK HIT")
+  console.log(JSON.stringify(body, null, 2))
+  
   const events = body.events
 
   for (const event of events) {
