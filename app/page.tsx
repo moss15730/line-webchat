@@ -123,45 +123,6 @@ export default function Home() {
       })
   }, [handleSelectUser, hasInitialized, isCheckingAuth, router])
 
-  useEffect(() => {
-    if (isCheckingAuth) return
-    const id = setInterval(() => {
-      fetch('/api/users')
-        .then(res => (res.ok ? res.json() : [] as ChatUser[]))
-        .then((data: ChatUser[]) => setUsers(data))
-        .catch(() => {})
-    }, 15000)
-    return () => clearInterval(id)
-  }, [isCheckingAuth])
-
-  useEffect(() => {
-    if (isCheckingAuth || !selectedUser) return
-    const pollMessages = () => {
-      fetch(`/api/messages?userId=${selectedUser.line_user_id}&limit=${PAGE_SIZE}`)
-        .then(res => (res.ok ? res.json() : [] as ChatMessage[]))
-        .then((data: ChatMessage[]) => {
-          const sorted = [...data].sort(
-            (a, b) =>
-              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-          )
-          setMessages(prev => {
-            const existingIds = new Set(prev.map(m => m.id))
-            const newOnes = sorted.filter(m => !existingIds.has(m.id))
-            if (newOnes.length === 0) return prev
-            return [...prev, ...newOnes].sort(
-              (a, b) =>
-                new Date(a.created_at).getTime() -
-                new Date(b.created_at).getTime()
-            )
-          })
-        })
-        .catch(() => {})
-    }
-    pollMessages()
-    const id = setInterval(pollMessages, 15000)
-    return () => clearInterval(id)
-  }, [isCheckingAuth, selectedUser?.line_user_id, PAGE_SIZE])
-
   const sendMessage = async () => {
     if (!text.trim() || !selectedUser) return
     await fetch('/api/send', {
