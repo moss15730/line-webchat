@@ -241,41 +241,91 @@ export default function Home() {
     }
   }, [isCheckingAuth])
 
-  const POLL_INTERVAL_MS = 3000
-  useEffect(() => {
-    if (isCheckingAuth || !selectedUser) return
-    const lineUserId = selectedUser.line_user_id
+  const POLL_FULL_REFRESH_MS = 30000
 
-    const poll = () => {
-      const lastCreatedAt = lastMessageCreatedAtRef.current
-        || new Date(Date.now() - 60_000).toISOString()
-      const params = new URLSearchParams({
-        userId: lineUserId,
-        after: lastCreatedAt,
-      })
-      fetch(`/api/messages?${params.toString()}`)
+  // รีเฟรชทันทีเมื่อกลับมาเปิดแท็บ (หลัง webhook insert ข้อความจาก LINE แล้ว)
+  useEffect(() => {
+    if (isCheckingAuth) return
+    const refresh = () => {
+      fetch('/api/users', { cache: 'no-store' })
         .then(res => (res.ok ? res.json() : []))
-        .then((data: ChatMessage[]) => {
-          if (data.length === 0) return
-          setMessages(prev => {
-            const existingIds = new Set(prev.map(m => m.id))
-            const newOnes = data.filter(m => !existingIds.has(m.id))
-            if (newOnes.length === 0) return prev
-            const merged = [...prev, ...newOnes].sort(
-              (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        .then((data: ChatUser[]) => {
+          setUsers(data)
+          setSelectedUser(prev =>
+            prev ? data.find(u => u.line_user_id === prev.line_user_id) ?? prev : null
+          )
+        })
+        .catch(() => {})
+      const lineUserId = selectedUserIdRef.current
+      if (lineUserId) {
+        fetch(`/api/messages?userId=${lineUserId}&limit=${PAGE_SIZE}`)
+          .then(res => (res.ok ? res.json() : []))
+          .then((data: ChatMessage[]) => {
+            const sorted = [...data].sort(
+              (a, b) =>
+                new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
             )
-            return merged
+            setMessages(sorted)
+            if (sorted.length > 0) {
+              const last = sorted[sorted.length - 1]
+              updateUserPreview(lineUserId, last.message, last.created_at)
+            }
           })
-          const last = data[data.length - 1]
-          updateUserPreview(lineUserId, last.message, last.created_at)
+          .catch(() => {})
+      }
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [isCheckingAuth, PAGE_SIZE, updateUserPreview])
+
+  useEffect(() => {
+    if (isCheckingAuth) return
+
+    const pollUsers = () => {
+      fetch('/api/users', { cache: 'no-store' })
+        .then(res => (res.ok ? res.json() : []))
+        .then((data: ChatUser[]) => {
+          setUsers(data)
+          setSelectedUser(prev =>
+            prev ? data.find(u => u.line_user_id === prev.line_user_id) ?? prev : null
+          )
         })
         .catch(() => {})
     }
 
-    const timer = setInterval(poll, POLL_INTERVAL_MS)
-    poll()
+    const timer = setInterval(pollUsers, POLL_FULL_REFRESH_MS)
+    pollUsers()
     return () => clearInterval(timer)
-  }, [isCheckingAuth, selectedUser?.line_user_id, updateUserPreview])
+  }, [isCheckingAuth])
+
+  useEffect(() => {
+    if (isCheckingAuth || !selectedUser) return
+    const lineUserId = selectedUser.line_user_id
+
+    const pollMessages = () => {
+      fetch(`/api/messages?userId=${lineUserId}&limit=${PAGE_SIZE}`)
+        .then(res => (res.ok ? res.json() : []))
+        .then((data: ChatMessage[]) => {
+          const sorted = [...data].sort(
+            (a, b) =>
+              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          )
+          setMessages(sorted)
+          if (sorted.length > 0) {
+            const last = sorted[sorted.length - 1]
+            updateUserPreview(lineUserId, last.message, last.created_at)
+          }
+        })
+        .catch(() => {})
+    }
+
+    const timer = setInterval(pollMessages, POLL_FULL_REFRESH_MS)
+    pollMessages()
+    return () => clearInterval(timer)
+  }, [PAGE_SIZE, isCheckingAuth, selectedUser?.line_user_id, updateUserPreview])
 
   const loadMoreMessages = useCallback(async () => {
     if (!selectedUser || isLoadingMore || !hasMore || messages.length === 0) return
