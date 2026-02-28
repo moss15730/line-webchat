@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { compare } from 'bcryptjs'
 import { supabase } from '@/lib/supabase'
-import { createSessionToken, hashPassword, SESSION_COOKIE } from '@/lib/auth'
+import { createSessionToken, SESSION_COOKIE } from '@/lib/auth'
 
 type LoginUser = {
   user_id: string
@@ -22,6 +23,12 @@ export async function POST(req: NextRequest) {
     .maybeSingle<LoginUser>()
 
   if (error || !data) {
+    return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
+  }
+
+  const passwordMatch = await compare(password, data.password_hash)
+
+  if (!passwordMatch) {
     return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
   }
 
