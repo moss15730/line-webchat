@@ -5,8 +5,22 @@ export const filters = [
   , 'ยังไม่ได้อ่าน'
 ] as const
 
-export const formatMessageTime = (dateString: ChatMessage['created_at']) =>
-  new Date(dateString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+const BANGKOK_TZ = 'Asia/Bangkok'
+
+function parseAsUTC(dateString: string): Date {
+  const s = dateString.trim()
+  if (/Z$|[-+]\d{2}:?\d{2}$/.test(s)) return new Date(s)
+  return new Date(s + (s.includes('T') ? 'Z' : 'Z'))
+}
+
+export const formatMessageTime = (dateString: ChatMessage['created_at']) => {
+  const d = parseAsUTC(dateString)
+  return d.toLocaleTimeString('th-TH', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: BANGKOK_TZ,
+  })
+}
 
 export const avatarColors = [
   'bg-blue-600',
