@@ -241,6 +241,47 @@ export default function Home() {
     }
   }, [isCheckingAuth])
 
+  useEffect(() => {
+    if (isCheckingAuth || !supabaseBrowser) return
+
+    const channel = supabaseBrowser
+      .channel('message-refresh')
+      .on(
+        'broadcast',
+        { event: 'new_message' },
+        (payload: { payload?: { line_user_id?: string } }) => {
+          const lineUserId = payload?.payload?.line_user_id
+          if (!lineUserId) return
+          fetch('/api/users', { cache: 'no-store' })
+            .then(res => (res.ok ? res.json() : []))
+            .then((data: ChatUser[]) => {
+              setUsers(data)
+              setSelectedUser(prev =>
+                prev ? data.find(u => u.line_user_id === prev.line_user_id) ?? prev : null
+              )
+            })
+            .catch(() => {})
+          if (selectedUserIdRef.current === lineUserId) {
+            fetch(`/api/messages?userId=${lineUserId}&limit=${PAGE_SIZE}`)
+              .then(res => (res.ok ? res.json() : []))
+              .then((data: ChatMessage[]) => {
+                const sorted = [...data].sort(
+                  (a, b) =>
+                    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                )
+                setMessages(sorted)
+              })
+              .catch(() => {})
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      if (supabaseBrowser) supabaseBrowser.removeChannel(channel)
+    }
+  }, [isCheckingAuth, PAGE_SIZE])
+
   const POLL_FULL_REFRESH_MS = 5 * 60 * 1000
 
   // รีเฟรชทันทีเมื่อกลับมาเปิดแท็บ (หลัง webhook insert ข้อความจาก LINE แล้ว)

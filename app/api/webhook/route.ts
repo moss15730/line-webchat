@@ -93,6 +93,28 @@ export async function POST(req: NextRequest) {
         message: text,
       })
 
+      try {
+        const channel = supabase.channel('message-refresh')
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => resolve(), 2500)
+          channel.subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              clearTimeout(timeout)
+              channel
+                .send({
+                  type: 'broadcast',
+                  event: 'new_message',
+                  payload: { line_user_id: userId },
+                })
+                .then(() => resolve())
+                .catch(reject)
+            }
+          })
+        })
+      } catch (broadcastErr) {
+        console.warn('Webhook: broadcast refresh failed', broadcastErr)
+      }
+
       await supabase.from('users').update({ read: false }).eq('line_user_id', userId)
     } catch (err) {
       console.error('Webhook: process event failed', event, err)
