@@ -241,7 +241,7 @@ export default function Home() {
     }
   }, [isCheckingAuth])
 
-  const POLL_FULL_REFRESH_MS = 5 * 60 * 1000
+  const POLL_FULL_REFRESH_MS = 5 * 1000
 
   // รีเฟรชทันทีเมื่อกลับมาเปิดแท็บ (หลัง webhook insert ข้อความจาก LINE แล้ว)
   useEffect(() => {
@@ -258,6 +258,19 @@ export default function Home() {
         .catch(() => {})
       const lineUserId = selectedUserIdRef.current
       if (lineUserId) {
+        fetch('/api/users/read', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ line_user_id: lineUserId, read: true }),
+        }).then(readRes => {
+          if (readRes.ok) {
+            setUsers(prev =>
+              prev.map(u =>
+                u.line_user_id === lineUserId ? { ...u, read: true } : u
+              )
+            )
+          }
+        })
         fetch(`/api/messages?userId=${lineUserId}&limit=${PAGE_SIZE}`)
           .then(res => (res.ok ? res.json() : []))
           .then((data: ChatMessage[]) => {
@@ -306,6 +319,19 @@ export default function Home() {
     const lineUserId = selectedUser.line_user_id
 
     const pollMessages = () => {
+      fetch('/api/users/read', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ line_user_id: lineUserId, read: true }),
+      }).then(readRes => {
+        if (readRes.ok) {
+          setUsers(prev =>
+            prev.map(u =>
+              u.line_user_id === lineUserId ? { ...u, read: true } : u
+            )
+          )
+        }
+      })
       fetch(`/api/messages?userId=${lineUserId}&limit=${PAGE_SIZE}`)
         .then(res => (res.ok ? res.json() : []))
         .then((data: ChatMessage[]) => {
